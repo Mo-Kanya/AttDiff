@@ -135,7 +135,10 @@ class AugWrapper(nn.Module):
 
         return self.D(images)
 
-def get_dataloaders(data_folder, dataset_name, cfg):
+def get_dataloader(cfg):
+    data_folder = cfg.data_folder
+    dataset_name = cfg.dataset_name
+
     if dataset_name is None:
         dataset = Dataset(data_folder, cfg.image_size, transparent=cfg.transparent,
                                 aug_prob=cfg.dataset_aug_prob)
@@ -151,7 +154,7 @@ def get_dataloaders(data_folder, dataset_name, cfg):
 
         dataloader = data.DataLoader(dataset, batch_size=cfg.batch_size, sampler=sampler)
 
-    loader = cycle(dataloader)
+    # loader = cycle(dataloader)
 
     # auto set augmentation prob for user if dataset is detected to be low
     num_samples = len(dataset)
