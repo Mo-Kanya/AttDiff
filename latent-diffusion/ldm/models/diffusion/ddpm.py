@@ -17,6 +17,7 @@ from functools import partial
 from tqdm import tqdm
 from torchvision.utils import make_grid
 from pytorch_lightning.utilities.distributed import rank_zero_only
+# from pytorch_lightning.utilities.rank_zero import rank_zero_only
 
 from ldm.util import log_txt_as_img, exists, default, ismap, isimage, mean_flat, count_params, instantiate_from_config
 from ldm.modules.ema import LitEma
@@ -71,12 +72,14 @@ class DDPM(pl.LightningModule):
                  use_positional_encodings=False,
                  learn_logvar=False,
                  logvar_init=0.,
+                 classifier=None,
                  ):
         super().__init__()
         assert parameterization in ["eps", "x0"], 'currently only supporting "eps" and "x0"'
         self.parameterization = parameterization
         print(f"{self.__class__.__name__}: Running in {self.parameterization}-prediction mode")
         self.cond_stage_model = None
+        self.classifier=None
         self.clip_denoised = clip_denoised
         self.log_every_t = log_every_t
         self.first_stage_key = first_stage_key
@@ -667,7 +670,12 @@ class LatentDiffusion(DDPM):
                 if cond_key in ['caption', 'coordinates_bbox']:
                     xc = batch[cond_key]
                 elif cond_key == 'class_label':
-                    xc = batch
+                    if self.classifier:
+                        # TODO: use a new cond_kay
+                        xc = {"class_label": self.classifier(batch),
+                              'image_batch': batch}
+                    else:
+                        xc = batch
                 else:
                     xc = super().get_input(batch, cond_key).to(self.device)
             else:
@@ -896,7 +904,7 @@ class LatentDiffusion(DDPM):
         else:
             if not isinstance(cond, list):
                 cond = [cond]
-            key = 'c_concat' if self.model.conditioning_key == 'concat' else 'c_crossattn'
+            key = 'c_concat' if self.model.conditioning_key == 'concat' else 'c_crossattn'  # for image impainting, this is 'concat'
             cond = {key: cond}
 
         if hasattr(self, "split_input_params"):

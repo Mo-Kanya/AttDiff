@@ -3,10 +3,11 @@ import torch.nn as nn
 from functools import partial
 import clip
 from einops import rearrange, repeat
+from transformers import CLIPTokenizer, CLIPTextModel
 import kornia
-
-
+from math import floor, log2
 from ldm.modules.x_transformer import Encoder, TransformerWrapper  # TODO: can we directly rely on lucidrains code and simply add this as a reuirement? --> test
+from style_module import DiscriminatorE
 
 
 class AbstractEncoder(nn.Module):
@@ -16,6 +17,22 @@ class AbstractEncoder(nn.Module):
     def encode(self, *args, **kwargs):
         raise NotImplementedError
 
+
+class StyleEmbedder(nn.Module):
+    def __init__(self, embed_dim, style_dim=514, key='class'):
+        super().__init__()
+        self.key = key
+        self.encoder = DiscriminatorE(image_size=64, network_capacity=16)  # TODO: update default params
+        self.affine = nn.Linear(style_dim, embed_dim)
+
+    def forward(self, batch, key=None):
+        if key is None:
+            key = self.key
+        # this is for use in crossattn
+        c = torch.cat((self.encoder(batch['image_batch']), batch[key]), dim=1)
+        c = c[:, None]
+        c = self.affine(c)
+        return c
 
 
 class ClassEmbedder(nn.Module):
@@ -134,6 +151,33 @@ class SpatialRescaler(nn.Module):
     def encode(self, x):
         return self(x)
 
+class FrozenCLIPEmbedder(AbstractEncoder):
+    """Uses the CLIP transformer encoder for text (from Hugging Face)"""
+    def __init__(self, version="openai/clip-vit-large-patch14", device="cuda", max_length=77):
+        super().__init__()
+        self.tokenizer = CLIPTokenizer.from_pretrained(version)
+        self.transformer = CLIPTextModel.from_pretrained(version)
+        self.device = device
+        self.max_length = max_length
+        self.freeze()
+
+    def freeze(self):
+        self.transformer = self.transformer.eval()
+        for param in self.parameters():
+            param.requires_grad = False
+
+    def forward(self, text):
+        batch_encoding = self.tokenizer(text, truncation=True, max_length=self.max_length, return_length=True,
+                                        return_overflowing_tokens=False, padding="max_length", return_tensors="pt")
+        tokens = batch_encoding["input_ids"].to(self.device)
+        outputs = self.transformer(input_ids=tokens)
+
+        z = outputs.last_hidden_state
+        return z
+
+    def encode(self, text):
+        return self(text)
+
 
 class FrozenCLIPTextEmbedder(nn.Module):
     """
@@ -200,3 +244,8 @@ class FrozenClipImageEmbedder(nn.Module):
         # x is assumed to be in range [-1,1]
         return self.model.encode_image(self.preprocess(x))
 
+
+if __name__ == "__main__":
+    from ldm.util import count_params
+    model = FrozenCLIPEmbedder()
+    count_params(model, verbose=True)
