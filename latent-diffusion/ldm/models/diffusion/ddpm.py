@@ -685,7 +685,7 @@ class LatentDiffusion(DDPM):
                         # TODO: use a new cond_kay
                         # class label is (bs, 2)
                         xc = {"class_label": self.classifier.classify_images(batch['image'].permute(0, 3, 1, 2)),
-                              'image_batch': batch['image']}
+                              'image_batch': batch['image'].permute(0, 3, 1, 2)}
                     else:
                         xc = batch
                 else:
