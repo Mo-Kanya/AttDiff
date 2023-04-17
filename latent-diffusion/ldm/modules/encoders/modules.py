@@ -7,7 +7,7 @@ from transformers import CLIPTokenizer, CLIPTextModel
 import kornia
 from math import floor, log2
 from ldm.modules.x_transformer import Encoder, TransformerWrapper  # TODO: can we directly rely on lucidrains code and simply add this as a reuirement? --> test
-from style_module import DiscriminatorE
+from ldm.modules.encoders.style_module import DiscriminatorE
 
 
 class AbstractEncoder(nn.Module):

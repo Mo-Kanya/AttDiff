@@ -65,3 +65,18 @@ model:
       params:
         embed_dim: 512
         key: class_label
+
+data:
+  target: main.DataModuleFromConfig
+  params:
+    batch_size: 42
+    num_workers: 5
+    wrap: false
+    train:
+      target: taming.data.faceshq.FFHQTrain
+      params:
+        size: 256
+    validation:
+      target: taming.data.faceshq.FFHQValidation
+      params:
+        size: 256

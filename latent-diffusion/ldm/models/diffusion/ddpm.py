@@ -26,8 +26,8 @@ from ldm.models.autoencoder import VQModelInterface, IdentityFirstStage, Autoenc
 from ldm.modules.diffusionmodules.util import make_beta_schedule, extract_into_tensor, noise_like
 from ldm.models.diffusion.ddim import DDIMSampler
 
-from ldm.modules.losses.stylex_losses import reconstruction_loss, classifier_kl_loss
-
+from ldm.modules.losses.stylex_loss import reconstruction_loss, classifier_kl_loss
+from ldm.models.diffusion.resnet_classifier import ResNet
 
 __conditioning_keys__ = {'concat': 'c_concat',
                          'crossattn': 'c_crossattn',
@@ -74,19 +74,21 @@ class DDPM(pl.LightningModule):
                  use_positional_encodings=False,
                  learn_logvar=False,
                  logvar_init=0.,
-                 classifier=None,
-                 rec_scaling=10,
+                 classifier_name="resnet",
+                 classifier_path="resnet-18-64px-gender.pt",
+                 rec_scaling=1,
                  kl_scaling=1,
+                 num_classes=2,
                  ):
         super().__init__()
         assert parameterization in ["eps", "x0"], 'currently only supporting "eps" and "x0"'
         self.parameterization = parameterization
         print(f"{self.__class__.__name__}: Running in {self.parameterization}-prediction mode")
         self.cond_stage_model = None
-        self.classifier = classifier
-        # Freeze classifier
-        for param in self.classifier.parameters():
-            param.requires_grad = False
+        if classifier_name.lower() == "resnet":
+            self.classifier = ResNet(classifier_path, cuda_rank=0, output_size=num_classes,
+                                     image_size=image_size)
+
         self.clip_denoised = clip_denoised
         self.log_every_t = log_every_t
         self.first_stage_key = first_stage_key
@@ -681,8 +683,9 @@ class LatentDiffusion(DDPM):
                 elif cond_key == 'class_label':
                     if self.classifier:
                         # TODO: use a new cond_kay
-                        xc = {"class_label": self.classifier(batch),
-                              'image_batch': batch}
+                        # class label is (bs, 2)
+                        xc = {"class_label": self.classifier.classify_images(batch['image'].permute(0, 3, 1, 2)),
+                              'image_batch': batch['image']}
                     else:
                         xc = batch
                 else:
@@ -1059,12 +1062,12 @@ class LatentDiffusion(DDPM):
         loss += (self.original_elbo_weight * loss_vlb)
 
         # target is real images, model_output is generated images
-        real_classified_logits = self.classifier(target)
-        encoder_output = self.cond_stage_model.encoder(real_images)
+        real_classified_logits = self.classifier.classify_images(target)
+        encoder_output = self.cond_stage_model.encoder(target)
 
         # Calculate StylEx-related losses
-        rec_loss = self.rec_scaling * reconstruction_loss(target, model_output, encoder_output, self.cond_stage_model.encoder(generated_images))
-        kl_loss = self.kl_scaling * classifier_kl_loss(real_classified_logits, self.classifier(model_output))
+        rec_loss = self.rec_scaling * reconstruction_loss(target, model_output, encoder_output, self.cond_stage_model.encoder(model_output))
+        kl_loss = self.kl_scaling * classifier_kl_loss(real_classified_logits, self.classifier.classify_images(model_output))
 
         loss += (rec_loss + kl_loss)
 
