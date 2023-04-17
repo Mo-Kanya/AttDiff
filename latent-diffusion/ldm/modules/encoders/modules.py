@@ -22,7 +22,8 @@ class StyleEmbedder(nn.Module):
     def __init__(self, embed_dim, style_dim=514, key='class'):
         super().__init__()
         self.key = key
-        self.encoder = DiscriminatorE(image_size=64, network_capacity=16)  # TODO: update default params
+        self.encoder = DiscriminatorE(image_size=64, network_capacity=16, encoder=True, fq_layers=[],
+                                      fq_dict_size=256, attn_layers=[], transparent=False, fmap_max=512)
         self.affine = nn.Linear(style_dim, embed_dim)
 
     def forward(self, batch, key=None):
