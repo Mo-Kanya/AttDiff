@@ -26,6 +26,8 @@ from ldm.models.autoencoder import VQModelInterface, IdentityFirstStage, Autoenc
 from ldm.modules.diffusionmodules.util import make_beta_schedule, extract_into_tensor, noise_like
 from ldm.models.diffusion.ddim import DDIMSampler
 
+from ldm.modules.losses.stylex_losses import reconstruction_loss, classifier_kl_loss
+
 
 __conditioning_keys__ = {'concat': 'c_concat',
                          'crossattn': 'c_crossattn',
@@ -73,13 +75,18 @@ class DDPM(pl.LightningModule):
                  learn_logvar=False,
                  logvar_init=0.,
                  classifier=None,
+                 rec_scaling=10,
+                 kl_scaling=1,
                  ):
         super().__init__()
         assert parameterization in ["eps", "x0"], 'currently only supporting "eps" and "x0"'
         self.parameterization = parameterization
         print(f"{self.__class__.__name__}: Running in {self.parameterization}-prediction mode")
         self.cond_stage_model = None
-        self.classifier=None
+        self.classifier = classifier
+        # Freeze classifier
+        for param in self.classifier.parameters():
+            param.requires_grad = False
         self.clip_denoised = clip_denoised
         self.log_every_t = log_every_t
         self.first_stage_key = first_stage_key
@@ -100,6 +107,8 @@ class DDPM(pl.LightningModule):
         self.v_posterior = v_posterior
         self.original_elbo_weight = original_elbo_weight
         self.l_simple_weight = l_simple_weight
+        self.rec_scaling = rec_scaling
+        self.kl_scaling = kl_scaling
 
         if monitor is not None:
             self.monitor = monitor
@@ -1048,6 +1057,17 @@ class LatentDiffusion(DDPM):
         loss_vlb = (self.lvlb_weights[t] * loss_vlb).mean()
         loss_dict.update({f'{prefix}/loss_vlb': loss_vlb})
         loss += (self.original_elbo_weight * loss_vlb)
+
+        # target is real images, model_output is generated images
+        real_classified_logits = self.classifier(target)
+        encoder_output = self.cond_stage_model.encoder(real_images)
+
+        # Calculate StylEx-related losses
+        rec_loss = self.rec_scaling * reconstruction_loss(target, model_output, encoder_output, self.cond_stage_model.encoder(generated_images))
+        kl_loss = self.kl_scaling * classifier_kl_loss(real_classified_logits, self.classifier(model_output))
+
+        loss += (rec_loss + kl_loss)
+
         loss_dict.update({f'{prefix}/loss': loss})
 
         return loss, loss_dict
