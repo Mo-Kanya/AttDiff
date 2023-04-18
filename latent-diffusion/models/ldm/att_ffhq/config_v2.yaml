@@ -39,7 +39,7 @@ model:
         context_dim: 512
 
     first_stage_config:
-      target: ldm.models.autoencoder.VQModelInterface
+      target: ldm.models.autoencoder.IdentityFirstStage
       params:
         embed_dim: 3
         n_embed: 8192
@@ -69,14 +69,26 @@ model:
 data:
   target: main.DataModuleFromConfig
   params:
-    batch_size: 42
+    batch_size: 32
     num_workers: 5
     wrap: false
     train:
       target: taming.data.faceshq.FFHQTrain
       params:
-        size: 256
+        size: 64
     validation:
       target: taming.data.faceshq.FFHQValidation
       params:
-        size: 256
+        size: 64
+
+lightning:
+  callbacks:
+    image_logger:
+      target: main.ImageLogger
+      params:
+        batch_frequency: 5000
+        max_images: 8
+        increase_log_steps: False
+
+  trainer:
+    benchmark: True

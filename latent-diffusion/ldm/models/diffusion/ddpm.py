@@ -1062,12 +1062,14 @@ class LatentDiffusion(DDPM):
         loss += (self.original_elbo_weight * loss_vlb)
 
         # target is real images, model_output is generated images
-        real_classified_logits = self.classifier.classify_images(target)
-        encoder_output = self.cond_stage_model.encoder(target)
+        real_classified_logits = self.classifier.classify_images(x_start)
+        encoder_output = self.cond_stage_model.encoder(x_start)
+
+        generated_images = self.predict_start_from_noise(x_noisy, t=t, noise=model_output)
 
         # Calculate StylEx-related losses
-        rec_loss = self.rec_scaling * reconstruction_loss(target, model_output, encoder_output, self.cond_stage_model.encoder(model_output))
-        kl_loss = self.kl_scaling * classifier_kl_loss(real_classified_logits, self.classifier.classify_images(model_output))
+        rec_loss = self.rec_scaling * reconstruction_loss(x_start, generated_images, encoder_output, self.cond_stage_model.encoder(generated_images))
+        kl_loss = self.kl_scaling * classifier_kl_loss(real_classified_logits, self.classifier.classify_images(generated_images))
 
         loss += (rec_loss + kl_loss)
 
