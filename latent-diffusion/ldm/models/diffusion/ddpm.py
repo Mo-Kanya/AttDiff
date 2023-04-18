@@ -1068,10 +1068,11 @@ class LatentDiffusion(DDPM):
         generated_images = self.predict_start_from_noise(x_noisy, t=t, noise=model_output)
 
         # Calculate StylEx-related losses
-        rec_loss = self.rec_scaling * reconstruction_loss(x_start, generated_images, encoder_output, self.cond_stage_model.encoder(generated_images))
+        # rec_loss = self.rec_scaling * reconstruction_loss(x_start, generated_images, encoder_output, self.cond_stage_model.encoder(generated_images))
         kl_loss = self.kl_scaling * classifier_kl_loss(real_classified_logits, self.classifier.classify_images(generated_images))
 
-        loss += (rec_loss + kl_loss)
+        # loss += (rec_loss + kl_loss)
+        loss += kl_loss
 
         loss_dict.update({f'{prefix}/loss': loss})
 
@@ -1305,8 +1306,11 @@ class LatentDiffusion(DDPM):
                 xc = log_txt_as_img((x.shape[2], x.shape[3]), batch["caption"])
                 log["conditioning"] = xc
             elif self.cond_stage_key == 'class_label':
-                xc = log_txt_as_img((x.shape[2], x.shape[3]), batch["human_label"])
-                log['conditioning'] = xc
+                try:
+                    xc = log_txt_as_img((x.shape[2], x.shape[3]), batch["human_label"])
+                    log['conditioning'] = xc
+                except:
+                    pass
             elif isimage(xc):
                 log["conditioning"] = xc
             if ismap(xc):
