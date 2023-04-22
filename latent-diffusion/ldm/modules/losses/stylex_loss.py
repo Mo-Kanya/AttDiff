@@ -15,7 +15,7 @@ def lpips_normalize(images):
     return (images - _min) / (_max - _min) * 2 - 1
 
 
-lpips_loss = lpips.LPIPS(net="alex").cuda(0)  # image should be RGB, IMPORTANT: normalized to [-1,1]
+lpips_loss = lpips.LPIPS(net="alex")  # image should be RGB, IMPORTANT: normalized to [-1,1]
 l1_loss = nn.L1Loss()
 
 # loss functions
@@ -38,7 +38,8 @@ def reconstruction_loss(
     generated_images_norm = lpips_normalize(generated_images.contiguous())
 
     # LPIPS reconstruction loss
-    loss = 0.1 * lpips_loss(real_images_norm, generated_images_norm).mean() 
+    # lpips_loss = lpips_loss.to(real_images_norm.device)
+    loss = 0.1 * lpips_loss.to(real_images_norm.device)(real_images_norm, generated_images_norm).mean()
     loss += 0.1 * l1_loss(encoder_w, generated_images_w)
     loss += 1 * l1_loss(real_images, generated_images)
     return loss

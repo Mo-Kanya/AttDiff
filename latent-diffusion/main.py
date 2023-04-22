@@ -533,6 +533,18 @@ if __name__ == "__main__":
 
         # model
         model = instantiate_from_config(config.model)
+        pl_sd = torch.load("/root/model.ckpt")
+        sd = pl_sd["state_dict"]
+        m, u = model.load_state_dict(sd, strict=False)
+        # print("******Missing Keys******")
+        # print(m)
+        # print("******Unexpected K******")
+        # print(u)
+
+        for param in model.parameters():
+            param.requires_grad = False
+        for param in model.cond_stage_model.parameters():
+            param.requires_grad = True
 
         # trainer and callbacks
         trainer_kwargs = dict()

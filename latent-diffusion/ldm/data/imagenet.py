@@ -97,6 +97,14 @@ class ImageNetBase(Dataset):
             self.relpaths = self._filter_relpaths(self.relpaths)
             print("Removed {} files from filelist during filtering.".format(l1 - len(self.relpaths)))
 
+        npath = None
+        for ii, p in enumerate(self.relpaths):
+            if p.split("/")[0]=='':
+                npath = ii
+                break
+        if npath is not None:
+            self.relpaths = self.relpaths[:npath] + self.relpaths[(npath+1):]
+
         self.synsets = [p.split("/")[0] for p in self.relpaths]
         self.abspaths = [os.path.join(self.datadir, p) for p in self.relpaths]
 
@@ -142,7 +150,7 @@ class ImageNetTrain(ImageNetBase):
         147897477120,
     ]
 
-    def __init__(self, process_images=True, data_root=None, **kwargs):
+    def __init__(self, process_images=True, data_root="/root/ImageNet", **kwargs):
         self.process_images = process_images
         self.data_root = data_root
         super().__init__(**kwargs)
@@ -166,6 +174,7 @@ class ImageNetTrain(ImageNetBase):
             datadir = self.datadir
             if not os.path.exists(datadir):
                 path = os.path.join(self.root, self.FILES[0])
+                # print(path)
                 if not os.path.exists(path) or not os.path.getsize(path)==self.SIZES[0]:
                     import academictorrents as at
                     atpath = at.get(self.AT_HASH, datastore=self.root)
@@ -208,12 +217,13 @@ class ImageNetValidation(ImageNetBase):
         1950000,
     ]
 
-    def __init__(self, process_images=True, data_root=None, **kwargs):
+    def __init__(self, process_images=True, data_root="/root/ImageNet", **kwargs):
         self.data_root = data_root
         self.process_images = process_images
         super().__init__(**kwargs)
 
     def _prepare(self):
+        # print("*********Preparing Valid***********")
         if self.data_root:
             self.root = os.path.join(self.data_root, self.NAME)
         else:

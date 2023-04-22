@@ -76,8 +76,8 @@ class DDPM(pl.LightningModule):
                  logvar_init=0.,
                  classifier_name="resnet",
                  classifier_path="resnet-18-64px-gender.pt",
-                 rec_scaling=0.001,
-                 kl_scaling=0.001,
+                 rec_scaling=0.01,
+                 kl_scaling=0.01,
                  num_classes=2,
                  ):
         super().__init__()
@@ -86,8 +86,7 @@ class DDPM(pl.LightningModule):
         print(f"{self.__class__.__name__}: Running in {self.parameterization}-prediction mode")
         self.cond_stage_model = None
         if classifier_name.lower() == "resnet":
-            self.classifier = ResNet(classifier_path, cuda_rank=0, output_size=num_classes,
-                                     image_size=image_size)
+            self.classifier = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=True) # .to("cuda:0")
 
         self.clip_denoised = clip_denoised
         self.log_every_t = log_every_t
@@ -684,7 +683,7 @@ class LatentDiffusion(DDPM):
                     if self.classifier:
                         # TODO: use a new cond_kay
                         # class label is (bs, 2)
-                        xc = {"class_label": self.classifier.classify_images(batch['image'].permute(0, 3, 1, 2)),
+                        xc = {"class_label": self.classifier(batch['image'].permute(0, 3, 1, 2)),
                               'image_batch': batch['image'].permute(0, 3, 1, 2)}
                     else:
                         xc = batch
@@ -789,7 +788,6 @@ class LatentDiffusion(DDPM):
                 z = torch.argmax(z.exp(), dim=1).long()
             z = self.first_stage_model.quantize.get_codebook_entry(z, shape=None)
             z = rearrange(z, 'b h w c -> b c h w').contiguous()
-
         z = 1. / self.scale_factor * z
 
         if hasattr(self, "split_input_params"):
@@ -1031,6 +1029,7 @@ class LatentDiffusion(DDPM):
         return mean_flat(kl_prior) / np.log(2.0)
 
     def p_losses(self, x_start, cond, real_images, t, noise=None):
+        # print("cond", cond.requires_grad)
         noise = default(noise, lambda: torch.randn_like(x_start))
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
         model_output = self.apply_model(x_noisy, t, cond)
@@ -1062,15 +1061,28 @@ class LatentDiffusion(DDPM):
         loss_dict.update({f'{prefix}/loss_vlb': loss_vlb})
         loss += (self.original_elbo_weight * loss_vlb)
 
-        real_classified_logits = self.classifier.classify_images(real_images)
-        encoder_output = self.cond_stage_model.encoder(real_images)
-
         generated_images = self.predict_start_from_noise(x_noisy, t=t, noise=model_output)
+        generated_images = self.differentiable_decode_first_stage(generated_images)
+        generated_images = torch.clamp((generated_images + 1.0) / 2.0, min=0.0, max=1.0)
 
+        real_classified_logits = self.classifier(real_images)
+        fake_classified_logits = self.classifier(generated_images)
+
+        # print("x_noisy", x_noisy.requires_grad)
+        # print("model_output", model_output.requires_grad)
+        # print("generated_images", generated_images.requires_grad)
+        # print("real_images",real_images.requires_grad)
+        # print("fake_classified_logits",fake_classified_logits.requires_grad)
+        # print("real_classified_logits",real_classified_logits.requires_grad)
+        # encoder_output = self.cond_stage_model.encoder(real_images)
+        # encoder_generated = self.cond_stage_model.encoder(generated_images)
+
+        # print("$"*10)
+        # print(real_images.shape, generated_images.shape)
         # Calculate StylEx-related losses
-        rec_loss = self.rec_scaling * reconstruction_loss(real_images, generated_images, encoder_output, self.cond_stage_model.encoder(generated_images))
-        kl_loss = self.kl_scaling * classifier_kl_loss(real_classified_logits, self.classifier.classify_images(generated_images))
-
+        # rec_loss = self.rec_scaling * reconstruction_loss(real_images, generated_images, encoder_output, encoder_generated)
+        rec_loss = 0
+        kl_loss = self.kl_scaling * classifier_kl_loss(real_classified_logits, fake_classified_logits)
         loss += (rec_loss + kl_loss)
         # loss += kl_loss
         loss_dict.update({f'{prefix}/loss_kl': kl_loss})
@@ -1401,8 +1413,8 @@ class LatentDiffusion(DDPM):
         lr = self.learning_rate
         params = list(self.model.parameters())
         if self.cond_stage_trainable:
-            print(f"{self.__class__.__name__}: Also optimizing conditioner params!")
-            params = params + list(self.cond_stage_model.parameters())
+            print(f"{self.__class__.__name__}: Only optimizing conditioner params!")
+            params = list(self.cond_stage_model.parameters())
         if self.learn_logvar:
             print('Diffusion model optimizing logvar')
             params.append(self.logvar)
