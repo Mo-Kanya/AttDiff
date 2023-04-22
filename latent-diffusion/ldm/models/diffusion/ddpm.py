@@ -76,8 +76,8 @@ class DDPM(pl.LightningModule):
                  logvar_init=0.,
                  classifier_name="resnet",
                  classifier_path="resnet-18-64px-gender.pt",
-                 rec_scaling=1,
-                 kl_scaling=1,
+                 rec_scaling=0.001,
+                 kl_scaling=0.001,
                  num_classes=2,
                  ):
         super().__init__()
@@ -892,11 +892,12 @@ class LatentDiffusion(DDPM):
         if self.model.conditioning_key is not None:
             assert c is not None
             if self.cond_stage_trainable:
+                real_images = c["image_batch"]
                 c = self.get_learned_conditioning(c)
             if self.shorten_cond_schedule:  # TODO: drop this option
                 tc = self.cond_ids[t].to(self.device)
                 c = self.q_sample(x_start=c, t=tc, noise=torch.randn_like(c.float()))
-        return self.p_losses(x, c, t, *args, **kwargs)
+        return self.p_losses(x, c, real_images, t, *args, **kwargs)
 
     def _rescale_annotations(self, bboxes, crop_coordinates):  # TODO: move to dataset
         def rescale_bbox(bbox):
@@ -1029,7 +1030,7 @@ class LatentDiffusion(DDPM):
         kl_prior = normal_kl(mean1=qt_mean, logvar1=qt_log_variance, mean2=0.0, logvar2=0.0)
         return mean_flat(kl_prior) / np.log(2.0)
 
-    def p_losses(self, x_start, cond, t, noise=None):
+    def p_losses(self, x_start, cond, real_images, t, noise=None):
         noise = default(noise, lambda: torch.randn_like(x_start))
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
         model_output = self.apply_model(x_noisy, t, cond)
@@ -1061,18 +1062,19 @@ class LatentDiffusion(DDPM):
         loss_dict.update({f'{prefix}/loss_vlb': loss_vlb})
         loss += (self.original_elbo_weight * loss_vlb)
 
-        # target is real images, model_output is generated images
-        real_classified_logits = self.classifier.classify_images(x_start)
-        encoder_output = self.cond_stage_model.encoder(x_start)
+        real_classified_logits = self.classifier.classify_images(real_images)
+        encoder_output = self.cond_stage_model.encoder(real_images)
 
         generated_images = self.predict_start_from_noise(x_noisy, t=t, noise=model_output)
 
         # Calculate StylEx-related losses
-        # rec_loss = self.rec_scaling * reconstruction_loss(x_start, generated_images, encoder_output, self.cond_stage_model.encoder(generated_images))
+        rec_loss = self.rec_scaling * reconstruction_loss(real_images, generated_images, encoder_output, self.cond_stage_model.encoder(generated_images))
         kl_loss = self.kl_scaling * classifier_kl_loss(real_classified_logits, self.classifier.classify_images(generated_images))
 
-        # loss += (rec_loss + kl_loss)
-        loss += kl_loss
+        loss += (rec_loss + kl_loss)
+        # loss += kl_loss
+        loss_dict.update({f'{prefix}/loss_kl': kl_loss})
+        loss_dict.update({f'{prefix}/loss_rec': rec_loss})
 
         loss_dict.update({f'{prefix}/loss': loss})
 

@@ -8,6 +8,7 @@ import kornia
 from math import floor, log2
 from ldm.modules.x_transformer import Encoder, TransformerWrapper  # TODO: can we directly rely on lucidrains code and simply add this as a reuirement? --> test
 from ldm.modules.encoders.style_module import DiscriminatorE
+import torch.nn.functional as F
 
 
 class AbstractEncoder(nn.Module):
@@ -16,6 +17,28 @@ class AbstractEncoder(nn.Module):
 
     def encode(self, *args, **kwargs):
         raise NotImplementedError
+
+
+class StyleEmbedderV2(nn.Module):
+    def __init__(self, embed_dim, style_dim=514, key='class'):
+        super().__init__()
+        self.key = key
+        self.encoder = DiscriminatorE(image_size=64, network_capacity=16, encoder=True, fq_layers=[],
+                                      fq_dict_size=256, attn_layers=[], transparent=False, fmap_max=512)
+        self.net = nn.Sequential(nn.Linear(style_dim, embed_dim),
+                                 nn.LeakyReLU(0.2, inplace=True),
+                                 nn.Linear(embed_dim, embed_dim),
+                                )
+
+    def forward(self, batch, key=None):
+        if key is None:
+            key = self.key
+        # this is for use in crossattn
+        c = torch.cat((self.encoder(batch['image_batch']), batch[key]), dim=1)
+        c = F.normalize(c, dim=1)
+        c = c[:, None]
+        c = self.net(c)
+        return c
 
 
 class StyleEmbedder(nn.Module):

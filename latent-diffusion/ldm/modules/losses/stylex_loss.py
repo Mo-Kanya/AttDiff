@@ -15,6 +15,9 @@ def lpips_normalize(images):
     return (images - _min) / (_max - _min) * 2 - 1
 
 
+lpips_loss = lpips.LPIPS(net="alex").cuda(0)  # image should be RGB, IMPORTANT: normalized to [-1,1]
+l1_loss = nn.L1Loss()
+
 # loss functions
 def reconstruction_loss(
     real_images: torch.Tensor, 
@@ -31,11 +34,8 @@ def reconstruction_loss(
     Output: Reconstruction Loss
     """
 
-    lpips_loss = lpips.LPIPS(net="alex").cuda(0)  # image should be RGB, IMPORTANT: normalized to [-1,1]
-    l1_loss = nn.L1Loss()
-
-    real_images_norm = lpips_normalize(real_images)
-    generated_images_norm = lpips_normalize(generated_images)
+    real_images_norm = lpips_normalize(real_images.contiguous())
+    generated_images_norm = lpips_normalize(generated_images.contiguous())
 
     # LPIPS reconstruction loss
     loss = 0.1 * lpips_loss(real_images_norm, generated_images_norm).mean() 
@@ -44,6 +44,7 @@ def reconstruction_loss(
     return loss
 
 
+kl_loss = nn.KLDivLoss(reduction="batchmean", log_target=True)
 def classifier_kl_loss(real_classifier_logits, fake_classifier_logits):
     """
     Input:
@@ -52,8 +53,6 @@ def classifier_kl_loss(real_classifier_logits, fake_classifier_logits):
     Output: KL loss
     """
     # Convert logits to log_softmax and then KL loss
-
-    kl_loss = nn.KLDivLoss(reduction="batchmean", log_target=True)
 
     real_classifier_probabilities = F.log_softmax(real_classifier_logits, dim=1)
     fake_classifier_probabilities = F.log_softmax(fake_classifier_logits, dim=1)
