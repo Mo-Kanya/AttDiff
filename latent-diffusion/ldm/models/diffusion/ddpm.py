@@ -1066,6 +1066,8 @@ class LatentDiffusion(DDPM):
         encoder_output = self.cond_stage_model.encoder(real_images)
 
         generated_images = self.predict_start_from_noise(x_noisy, t=t, noise=model_output)
+        generated_images = torch.clamp((generated_images+1.0)/2.0, 
+                                         min=0.0, max=1.0)
 
         # Calculate StylEx-related losses
         rec_loss = self.rec_scaling * reconstruction_loss(real_images, generated_images, encoder_output, self.cond_stage_model.encoder(generated_images))
